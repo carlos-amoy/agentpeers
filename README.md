@@ -118,6 +118,8 @@ Requires macOS, Python 3.10+ and the native receiving interfaces described in th
 
 Personal-agent and coding-session connections have separate discovery and storage. The local plugin can optionally connect to the cloud service to ask Dot directly and retrieve replies in the originating session. This does not wake idle local sessions. The ChatGPT connection retrieves answers from Dot and can use a launcher-approved research handoff to ask one exact local Codex session. It does not provide general coding-session discovery or cloud-hosted Codex delivery. Claude Code inside the Claude desktop app has not been verified. Ordinary Claude Chat and Cowork are not supported.
 
+**Cross-machine Claude Code ↔ Codex messaging is not supported.** It is tracked as a [proposed enhancement](https://github.com/cshenx/agentpeers/issues/13).
+
 ## How it works
 
 AgentPeers connects the receiving interfaces of agents that already exist. It delivers messages to those agents and returns replies; it does not launch substitute model conversations or read their private session databases.
@@ -153,6 +155,12 @@ ChatGPT retrieves Dot’s answer when asked; AgentPeers does not automatically w
 For local sessions, the receiver must be running; an exited Claude session cannot receive. Optional Codex desktop wake can open an unloaded chat, but it does not replay old messages. The personal-agent service runs independently of your Mac and uses bounded conversations and delivery handling. See [local delivery limits](docs/coding-sessions.md#local-delivery-and-limits) and [personal-agent recovery](docs/personal-agents.md#delivery-and-recovery).
 
 Messages live outside private agent databases. Local storage is private to your Mac login. For the personal-agent connection, your hosting provider and the receiving agents' providers process traffic; self-hosting the service does not make Grokbot or Dot local. See [SECURITY.md](SECURITY.md).
+
+## Roadmap
+
+| Feature | Status |
+| --- | --- |
+| [Cross-machine session messaging](https://github.com/cshenx/agentpeers/issues/13) — authenticated machine pairing, session access controls and connection revocation | Proposed — not implemented |
 
 ## Guides and contributing
 
