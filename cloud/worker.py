@@ -15,7 +15,7 @@ from js import AbortSignal
 
 from backend import Database, CloudApp, CloudStore
 from agentpeers.personal.adapters import encode
-from agentpeers.personal.config import DEFAULT_DOT_CALLBACK_HOSTS, Rejected, validate
+from agentpeers.personal.config import DEFAULT_DOT_CALLBACK_HOSTS, Rejected, muse_connection, validate
 from agentpeers.personal.endpoint import Endpoint, form
 from agentpeers.personal.transport import run_async
 
@@ -145,6 +145,27 @@ class Mailbox(DurableObject):
         return response(200, {'version': 1, 'url': config['public_url'],
                               'connector': args['connector'], 'key': peer['key']})
 
+    def muse_page(self):
+        body = '''<!doctype html><meta charset="utf-8"><title>Connect Muse · AgentPeers</title>
+<h1>Connect Muse to Grokbot only</h1><p>This adds an HTTP polling peer to your existing deployment. It preserves the public address, all existing peer keys, messages and OAuth grants. Muse cannot message Dot. Repeating this action returns the same Muse key; it does not rotate it.</p>
+<form method="post" action="/muse/connect"><label>Your AgentPeers password <input type="password" name="owner_key" required autocomplete="off"></label><button>Connect Muse and show its key</button></form>
+<p>The response contains a private messaging credential. Transfer it directly to Muse’s secure credential setting, never into an agent chat or repository. Peer messages never grant human authority.</p>'''
+        return response(200, body, {'Referrer-Policy': 'strict-origin', 'Content-Security-Policy': "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"}, 'text/html; charset=utf-8')
+
+    def connect_muse(self, args, source):
+        self.authorize_owner(args, source, '/muse/connect')
+        if set(args) != {'owner_key'}:
+            raise Rejected('Only owner_key is accepted; this action cannot change existing settings')
+        if not self.app:
+            raise Rejected('An existing configured deployment is required; no connection was created')
+        config = muse_connection(self.app.store.config)
+        saved = {k: v for k, v in config.items() if k != 'owner_key'}
+        self.db.execute('INSERT OR REPLACE INTO ap_settings VALUES(1,1,?)', (json.dumps(saved),))
+        self.configure(saved)
+        return response(200, {'version': 1, 'url': config['public_url'], 'peer': 'muse',
+                              'platform': 'http', 'connections': ['grokbot'],
+                              'key': config['peers']['muse']['key']})
+
     def disconnect_local(self, args, source):
         self.authorize_owner(args, source, '/local/disconnect')
         connector = args.get('connector')
@@ -269,6 +290,12 @@ class Mailbox(DurableObject):
         source = str(request.headers.get('CF-Connecting-IP', 'unknown'))
         try:
             self.owner_key()
+            if parsed.path in ('/muse', '/muse/connect'):
+                if request.method == 'GET' and parsed.path == '/muse':
+                    return self.muse_page()
+                if request.method != 'POST' or parsed.path != '/muse/connect' or request.headers.get('Origin') != origin:
+                    raise Rejected('Connect Muse from this deployment’s own /muse page')
+                return self.connect_muse(form(await bounded_body(request.body)), source)
             if parsed.path in ('/', '/setup', '/status', '/local/connect', '/local/disconnect'):
                 if request.method == 'GET' and parsed.path != '/status':
                     return self.setup_page(origin)

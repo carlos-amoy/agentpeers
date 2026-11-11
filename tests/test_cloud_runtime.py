@@ -91,6 +91,54 @@ class CloudRuntime(unittest.TestCase):
         status,_,token=self.request('POST','/oauth/token',urlencode({'grant_type':'authorization_code','code':code,'code_verifier':verifier,'redirect_uri':args['redirect_uri'],'client_id':args['client_id'],'resource':args['resource']}),headers={'Content-Type':'application/x-www-form-urlencoded'});self.assertEqual(status,200,token)
         return token['access_token']
 
+    def test_muse_owner_connection_preserves_dot_and_polls_without_push(self):
+        token = self.connect_dot()
+        headers = {'Content-Type': 'application/x-www-form-urlencoded',
+                   'Origin': 'http://127.0.0.1:' + str(self.port)}
+        status, page_headers, page = self.request('GET', '/muse')
+        self.assertEqual(status, 200)
+        self.assertEqual(page_headers['Referrer-Policy'], 'strict-origin')
+        self.assertIn('/muse/connect', page)
+        args = urlencode({'owner_key': 'o' * 40})
+        status, response_headers, connected = self.request('POST', '/muse/connect', args, headers=headers)
+        self.assertEqual(status, 200, connected)
+        self.assertEqual(response_headers['Cache-Control'], 'no-store')
+        self.assertEqual((connected['url'], connected['peer'], connected['platform']),
+                         ('https://bridge.example', 'muse', 'http'))
+        self.assertEqual(connected['connections'], ['grokbot'])
+        self.assertEqual(self.request('POST', '/muse/connect', args, headers=headers)[2], connected)
+        def call(key, tool, **arguments):
+            return self.request('POST', '/v1/call', {'tool': tool, 'arguments': arguments}, key)
+        self.assertEqual([p['id'] for p in call(connected['key'], 'list_peers')[2]['peers']], ['grokbot'])
+        self.assertNotIn('muse', [p['id'] for p in self.tool(token, 'list_peers')['peers']])
+        status, _, sent = call(self.grok, 'send_message', to='Muse', message='Runtime fixture',
+                              scope='Fixture only', message_id='poll-only')
+        self.assertEqual(status, 200, sent)
+        self.assertEqual((sent['state'], sent['attempts'], sent['read_at']), ('available', 0, None))
+        self.assertEqual(self.request('GET', '/test/deliveries')[2], [])
+        self.assertIsNone(self.request('GET', '/test/alarm')[2]['alarm'])
+        self.assertEqual(call(connected['key'], 'inbox')[2]['messages'][0]['id'], sent['id'])
+        self.assertTrue(call(connected['key'], 'claim_message', message_id=sent['id'])[2]['claimed'])
+        self.assertFalse(call(connected['key'], 'claim_message', message_id=sent['id'])[2]['claimed'])
+        self.assertIsNone(call(connected['key'], 'read_message', message_id=sent['id'])[2]['read_at'])
+        self.assertEqual(call(connected['key'], 'acknowledge', message_id=sent['id'])[0], 200)
+        status, _, reply = call(connected['key'], 'reply', message_id=sent['id'],
+                                message='Runtime reply', reply_id='poll-answer')
+        self.assertEqual(status, 200, reply)
+        self.assertEqual((reply['sender'], reply['recipient'], reply['claimed_scope']),
+                         ('muse', 'grokbot', 'Fixture only'))
+        self.delivery('poll-answer')  # Only the existing Grokbot adapter pushes.
+
+    def test_muse_owner_route_rejects_peer_keys_cross_origin_and_settings(self):
+        headers = {'Content-Type': 'application/x-www-form-urlencoded',
+                   'Origin': 'http://127.0.0.1:' + str(self.port)}
+        for fields in ({'owner_key': self.grok}, {'owner_key': 'o' * 40, 'public_url': 'https://other.example'}):
+            self.assertEqual(self.request('POST', '/muse/connect', urlencode(fields), headers=headers)[0], 400)
+        self.assertEqual(self.request('POST', '/muse/connect', urlencode({'owner_key': 'o' * 40}),
+                                      headers={**headers, 'Origin': 'https://other.example'})[0], 400)
+        peers = self.request('POST', '/v1/call', {'tool': 'list_peers', 'arguments': {}}, self.grok)[2]
+        self.assertEqual([p['id'] for p in peers['peers']], ['dot'])
+
     def rpc(self,token,method,params=None):
         status,_,value=self.request('POST','/mcp/dot',{'jsonrpc':'2.0','id':1,'method':method,'params':params or {}},token)
         self.assertEqual(status,200,value);self.assertNotIn('error',value);return value['result']
