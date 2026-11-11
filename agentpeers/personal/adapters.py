@@ -158,7 +158,13 @@ class LocalAdapter:
     receiving = "origin_session_retrieval"
 
 
-ADAPTERS = {"grokbot": GrokbotAdapter(), "dot": DotAdapter(), "local": LocalAdapter()}
+class HttpPollingAdapter:
+    notification_retry_safe = True  # No outbound submission can have occurred.
+    receiving = "http_polling"
+
+
+ADAPTERS = {"grokbot": GrokbotAdapter(), "dot": DotAdapter(), "local": LocalAdapter(),
+            "http": HttpPollingAdapter()}
 
 
 class Dispatcher:
@@ -182,6 +188,12 @@ class Dispatcher:
                 s.db.execute("UPDATE messages SET state='blocked',detail='Connection revoked' WHERE id=?", (row["id"],))
                 return True
             adapter = ADAPTERS[peer["platform"]]
+            if adapter.receiving == "http_polling":
+                # Normally saved as available. Safely handle queued records too,
+                # without a callback credential, webhook or delivery attempt.
+                s.db.execute("UPDATE messages SET state='available',detail='Available for recipient polling',lease=NULL,callback_hash=NULL WHERE id=?", (row["id"],))
+                s.event(row["id"], "available_for_polling")
+                return True
             subscription = None
             if adapter.receiving == "event_subscription":
                 factual = getattr(s, "factual", None)

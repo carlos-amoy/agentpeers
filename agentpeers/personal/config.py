@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import stat
 from urllib.parse import urlsplit
 
@@ -55,8 +56,8 @@ def validate(config):
     tokens, names = set(), set()
     for peer_id, peer in peers.items():
         identifier(peer_id)
-        if peer.get("platform") not in ("grokbot", "dot", "local"):
-            raise Rejected("Implemented personal adapters: grokbot, dot, local")
+        if peer.get("platform") not in ("grokbot", "dot", "local", "http"):
+            raise Rejected("Implemented personal adapters: grokbot, dot, local, http")
         name = peer.get("name", peer_id)
         if not isinstance(name, str) or not name.strip() or len(name) > 100 or name in names:
             raise Rejected("Peer names must be unique and contain 1–100 characters")
@@ -85,3 +86,22 @@ def validate(config):
         if not isinstance(config[field], list) or any(not isinstance(h, str) or not re.fullmatch(r"[a-zA-Z0-9.-]+", h) for h in config[field]):
             raise Rejected(field + " must contain exact hostnames")
     return config
+
+
+def muse_connection(current):
+    """Owner-only additive configuration; never replace existing peer credentials."""
+    config = json.loads(json.dumps(current))
+    peers = config["peers"]
+    if peers.get("grokbot", {}).get("platform") != "grokbot":
+        raise Rejected("An existing grokbot peer is required; no connection was created")
+    existing = peers.get("muse")
+    if existing and existing.get("platform") != "http":
+        raise Rejected("The muse ID already belongs to another adapter; preserve its configuration")
+    if any("muse" in pair and set(pair) != {"grokbot", "muse"}
+           for pair in config.get("connections", [])):
+        raise Rejected("Muse already has another connection; owner review is required")
+    if not existing:
+        peers["muse"] = {"name": "Muse", "platform": "http", "key": secrets.token_urlsafe(32)}
+    if not any(set(pair) == {"grokbot", "muse"} for pair in config.get("connections", [])):
+        config.setdefault("connections", []).append(["grokbot", "muse"])
+    return validate(config)

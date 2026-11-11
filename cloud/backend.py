@@ -77,7 +77,7 @@ class CloudApp(App):
         key = hmac.new(self.store.config['owner_key'].encode(), source.encode(), hashlib.sha256).hexdigest()[:32]
         self.store.db.execute('DELETE FROM ap_limits WHERE period<?', (now // 60 - 1,))
         row = self.store.db.execute('SELECT n FROM ap_limits WHERE source=? AND action=? AND period=?', (key, action, now // 60)).fetchone()
-        if row and row[0] >= (10 if action in ('/oauth/authorize', '/setup', '/status', '/context/admin', '/context/login') else 60):
+        if row and row[0] >= (10 if action in ('/oauth/authorize', '/setup', '/status', '/muse/connect', '/context/admin', '/context/login') else 60):
             raise Rejected('Request limit reached; wait before trying again')
         if self.store.db.execute('SELECT count(*) FROM ap_limits').fetchone()[0] >= 1000 and not row:
             raise Rejected('Request limit reached; wait before trying again')

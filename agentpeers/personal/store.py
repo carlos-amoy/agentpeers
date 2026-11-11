@@ -176,7 +176,7 @@ class Store:
             def commit():
                 if not original:
                     self.db.execute("INSERT INTO conversations(id,a,b,scope,expires) VALUES(?,?,?,?,?)", (cid, actor, target, scope, self.clock() + self.config.get("conversation_seconds", 86400)))
-                state = "available" if self.config["peers"][target]["platform"] == "local" else "queued"
+                state = "available" if self.config["peers"][target]["platform"] in ("local", "http") else "queued"
                 self.db.execute("INSERT INTO messages(id,conversation_id,sender,recipient,body,reply_to,expects,created,state) VALUES(?,?,?,?,?,?,?,?,?)", (mid, cid, actor, target, body, reply_to, expects, self.clock(), state))
                 self.event(mid, "saved")
             self.transaction(commit)
@@ -222,7 +222,12 @@ class Store:
 
     def inbox(self, actor):
         with self.lock:
-            rows = self.db.execute("SELECT * FROM messages WHERE recipient=? AND read_at IS NULL ORDER BY created LIMIT 100", (actor,)).fetchall()
+            if self.config["peers"].get(actor, {}).get("platform") == "http":
+                # Keep stopped/expired evidence readable by ID, but do not
+                # return it as work on every subsequent client poll.
+                rows = self.db.execute("SELECT m.* FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.recipient=? AND m.read_at IS NULL AND c.stopped=0 AND c.expires>? ORDER BY m.created LIMIT 100", (actor, self.clock())).fetchall()
+            else:
+                rows = self.db.execute("SELECT * FROM messages WHERE recipient=? AND read_at IS NULL ORDER BY created LIMIT 100", (actor,)).fetchall()
             return [self._public(dict(r)) for r in rows if self.connected(actor, r["sender"])]
 
     def stop(self, actor, cid):

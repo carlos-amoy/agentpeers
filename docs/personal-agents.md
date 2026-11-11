@@ -8,6 +8,10 @@ Before you begin, you need an existing Grokbot with cloud HTTP capability and a 
 
 [Deploy in Cloudflare](#deploy-in-your-cloudflare-account) · [Run on your server](#run-on-your-own-server) · [Connect Dot](#dot-connection) · [Connect Grokbot](#grokbot-connection)
 
+For an HTTP-only Muse assistant on an existing cloud deployment, see
+[Connect Muse with polling](muse-polling.md). This optional owner action pairs
+Muse with Grokbot only; it does not connect Muse to Dot or replace existing keys.
+
 ## Choose where it runs
 
 | Option | What you need | Where messages live |
